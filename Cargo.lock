@@ -1064,6 +1064,8 @@ dependencies = [
 [[package]]
 name = "r-neli"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9202aca3cc63012ad9797b0c95a7a89ae95325d8f960ccfe28976cbb31cb037f"
 dependencies = [
  "anyhow",
  "env_logger",

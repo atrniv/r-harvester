@@ -10,7 +10,7 @@ readme = "README.md"
 
 [dependencies]
 color-eyre = "0.5"
-r-neli = { path = "../r-neli" }
+r-neli = { version = "0.1" }
 tokio = { version = "1", features = ["full"] }
 rdkafka = { version = "0.26", features = ["cmake-build"] }
 thiserror = "1.0"
