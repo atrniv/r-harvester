@@ -1,0 +1,7 @@
+database_uri: postgres://postgres:password@localhost:5432/location_tracking_gateway
+leader_topic: location-tracking-gateway-reaper-2
+leader_group_id: gateway-reaper
+base_kafka_config:
+  bootstrap.servers: localhost:9092
+limits:
+  harvest_limit: 1000
