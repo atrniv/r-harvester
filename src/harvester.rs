@@ -372,9 +372,7 @@ impl Harvester {
                         Ok(_) => {
                             debug!("[{}] Liveness check completed", harvester.config.name);
                         }
-                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                            // wait until network socket is ready, typically implemented
-                            // via platform-specific APIs such as epoll or IOCP
+                        Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {
                             time::sleep(Duration::from_millis(100)).await;
                             continue;
                         }
