@@ -1,6 +1,8 @@
 use std::{
     collections::HashMap,
     ffi::OsString,
+    io,
+    net::{SocketAddr, TcpListener},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -46,6 +48,7 @@ pub struct HarvesterConfigParams {
     pub heartbeat_timeout: Option<Duration>,
     pub harvest_limit: Option<u32>,
     pub harvest_backoff: Option<Duration>,
+    pub health_probe: Option<SocketAddr>,
     pub db_connect_timeout: Option<Duration>,
 }
 
@@ -63,6 +66,7 @@ pub struct HarvesterConfig {
     pub heartbeat_timeout: Option<Duration>,
     pub harvest_limit: u32,
     pub harvest_backoff: Duration,
+    pub health_probe: Option<SocketAddr>,
     pub db_connect_timeout: Duration,
 }
 
@@ -88,6 +92,7 @@ impl From<HarvesterConfigParams> for HarvesterConfig {
             heartbeat_timeout: params.heartbeat_timeout,
             harvest_limit: params.harvest_limit.unwrap_or(1000),
             harvest_backoff: params.harvest_backoff.unwrap_or(Duration::from_secs(1)),
+            health_probe: params.health_probe,
             db_connect_timeout: params.db_connect_timeout.unwrap_or(Duration::from_secs(5)),
         }
     }
@@ -147,6 +152,7 @@ impl Harvester {
         self.state.is_running.store(true, Ordering::Relaxed);
         self.state.is_leader.store(false, Ordering::SeqCst);
         let membership_check_handle = tokio::spawn(Harvester::membership_check(self.clone()));
+        let health_probe_handle = tokio::spawn(Harvester::health_probe(self.clone()));
 
         info!("[{}] Harvester started", self.config.name);
 
@@ -168,6 +174,8 @@ impl Harvester {
 
         info!("[{}] Harvester shutting down", self.config.name);
         membership_check_handle.await?;
+        drop(health_probe_handle);
+
         drop(producer);
         drop(db);
 
@@ -301,17 +309,23 @@ impl Harvester {
                         events.iter().find(|x| match x {
                             LeaderEvent::LeaderAcquired(0) => {
                                 info!(
-                                    "[{}] Harvester leader status acquired",
-                                    harvester.config.name
+                                    "[{}] Harvester leader status acquired on '{}'",
+                                    harvester.config.name, harvester.config.leader_topic
                                 );
                                 true
                             }
                             LeaderEvent::LeaderFenced(0) => {
-                                info!("[{}] Harvester leader status fenced", harvester.config.name);
+                                info!(
+                                    "[{}] Harvester leader status fenced  on '{}'",
+                                    harvester.config.name, harvester.config.leader_topic
+                                );
                                 true
                             }
                             LeaderEvent::LeaderRevoked(0) => {
-                                info!("[{}] Harvester leader status lost", harvester.config.name);
+                                info!(
+                                    "[{}] Harvester leader status lost  on '{}'",
+                                    harvester.config.name, harvester.config.leader_topic
+                                );
                                 true
                             }
                             _ => false,
@@ -343,6 +357,40 @@ impl Harvester {
         processor.close();
         drop(processor);
         info!("[{}] Stopped background NELI server", harvester.config.name);
+    }
+
+    async fn health_probe(harvester: Harvester) {
+        if let Some(addr) = harvester.config.health_probe {
+            let listener = TcpListener::bind(addr).unwrap();
+            listener
+                .set_nonblocking(true)
+                .expect("Failed to set non-blocking tcp listener");
+            info!("[{}] Started liveness check port", harvester.config.name);
+            for stream in listener.incoming() {
+                if harvester.state.is_running.load(Ordering::Relaxed) {
+                    match stream {
+                        Ok(_) => {
+                            debug!("[{}] Liveness check completed", harvester.config.name);
+                        }
+                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+                            // wait until network socket is ready, typically implemented
+                            // via platform-specific APIs such as epoll or IOCP
+                            time::sleep(Duration::from_millis(100)).await;
+                            continue;
+                        }
+                        Err(err) => {
+                            error!(
+                                "[{}] Failed to complete liveness check: {}",
+                                harvester.config.name, err
+                            )
+                        }
+                    }
+                } else {
+                    break;
+                }
+            }
+            info!("[{}] Stopped liveness check port", harvester.config.name);
+        }
     }
 
     pub async fn stop(&self) {

@@ -5,6 +5,7 @@ use serde::Deserialize;
 use sqlx::postgres::PgConnectOptions;
 use std::collections::HashMap;
 use std::env;
+use std::net::SocketAddr;
 use std::time::Duration;
 
 static DEFAULT_CONFIG_FILE: &'static str = "harvester.yml";
@@ -38,6 +39,7 @@ pub struct Settings {
     pub producer_kafka_config: Option<HashMap<String, String>>,
     pub leader_topic: String,
     pub leader_group_id: String,
+    pub health_probe: Option<SocketAddr>,
     #[serde(default)]
     pub limits: HarvesterLimits,
 }

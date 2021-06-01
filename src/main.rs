@@ -43,6 +43,7 @@ async fn main() -> Result<()> {
         harvest_limit: settings.limits.harvest_limit,
         db_connect_timeout: settings.limits.db_connect_timeout,
         harvest_backoff: settings.limits.harvest_backoff,
+        health_probe: settings.health_probe,
     }));
 
     let signals = Signals::new(&[SIGHUP, SIGTERM, SIGINT, SIGQUIT])?;
