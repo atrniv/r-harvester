@@ -40,6 +40,7 @@ pub struct Settings {
     pub leader_topic: String,
     pub leader_group_id: String,
     pub health_probe: Option<SocketAddr>,
+    pub leader_probe: Option<SocketAddr>,
     #[serde(default)]
     pub limits: HarvesterLimits,
 }

@@ -49,6 +49,7 @@ pub struct HarvesterConfigParams {
     pub harvest_limit: Option<u32>,
     pub harvest_backoff: Option<Duration>,
     pub health_probe: Option<SocketAddr>,
+    pub leader_probe: Option<SocketAddr>,
     pub db_connect_timeout: Option<Duration>,
 }
 
@@ -67,6 +68,7 @@ pub struct HarvesterConfig {
     pub harvest_limit: u32,
     pub harvest_backoff: Duration,
     pub health_probe: Option<SocketAddr>,
+    pub leader_probe: Option<SocketAddr>,
     pub db_connect_timeout: Duration,
 }
 
@@ -93,6 +95,7 @@ impl From<HarvesterConfigParams> for HarvesterConfig {
             harvest_limit: params.harvest_limit.unwrap_or(1000),
             harvest_backoff: params.harvest_backoff.unwrap_or(Duration::from_secs(1)),
             health_probe: params.health_probe,
+            leader_probe: params.leader_probe,
             db_connect_timeout: params.db_connect_timeout.unwrap_or(Duration::from_secs(5)),
         }
     }
@@ -153,6 +156,7 @@ impl Harvester {
         self.state.is_leader.store(false, Ordering::SeqCst);
         let membership_check_handle = tokio::spawn(Harvester::membership_check(self.clone()));
         let health_probe_handle = tokio::spawn(Harvester::health_probe(self.clone()));
+        let leader_probe_handle = tokio::spawn(Harvester::leader_probe(self.clone()));
 
         info!("[{}] Harvester started", self.config.name);
 
@@ -169,13 +173,16 @@ impl Harvester {
                         time::sleep(self.config.harvest_backoff).await;
                     }
                 }
+            } else {
+                time::sleep(Duration::from_millis(100)).await;
             }
         }
 
         info!("[{}] Harvester shutting down", self.config.name);
         membership_check_handle.await?;
-        drop(health_probe_handle);
 
+        drop(leader_probe_handle);
+        drop(health_probe_handle);
         drop(producer);
         drop(db);
 
@@ -365,7 +372,10 @@ impl Harvester {
             listener
                 .set_nonblocking(true)
                 .expect("Failed to set non-blocking tcp listener");
-            info!("[{}] Started liveness check port", harvester.config.name);
+            info!(
+                "[{}] Started liveness check on port {}",
+                harvester.config.name, addr
+            );
             for stream in listener.incoming() {
                 if harvester.state.is_running.load(Ordering::Relaxed) {
                     match stream {
@@ -387,7 +397,64 @@ impl Harvester {
                     break;
                 }
             }
-            info!("[{}] Stopped liveness check port", harvester.config.name);
+            info!(
+                "[{}] Stopped liveness check on port {}",
+                harvester.config.name, addr
+            );
+        }
+    }
+    async fn leader_probe(harvester: Harvester) {
+        if let Some(addr) = harvester.config.leader_probe {
+            info!(
+                "[{}] Started leadership check on port {}",
+                harvester.config.name, addr
+            );
+
+            let mut leadership_listener: Option<TcpListener> = None;
+            loop {
+                if harvester.state.is_running.load(Ordering::Relaxed) {
+                    if harvester.state.is_leader.load(Ordering::Relaxed) {
+                        if let Some(ref listener) = leadership_listener {
+                            let stream = listener.accept();
+                            match stream {
+                                Ok(_) => {
+                                    debug!(
+                                        "[{}] Leadership check completed",
+                                        harvester.config.name
+                                    );
+                                }
+                                Err(ref err) if err.kind() == io::ErrorKind::WouldBlock => {
+                                    time::sleep(Duration::from_millis(100)).await;
+                                }
+                                Err(err) => {
+                                    error!(
+                                        "[{}] Failed to complete leadership check: {}",
+                                        harvester.config.name, err
+                                    )
+                                }
+                            }
+                        } else {
+                            let listener = TcpListener::bind(addr).unwrap();
+                            listener
+                                .set_nonblocking(true)
+                                .expect("Failed to set non-blocking tcp listener");
+                            leadership_listener = Some(listener);
+                        }
+                    } else {
+                        if leadership_listener.is_some() {
+                            leadership_listener = None;
+                        } else {
+                            time::sleep(Duration::from_millis(100)).await;
+                        }
+                    };
+                } else {
+                    break;
+                }
+            }
+            info!(
+                "[{}] Stopped leadership check on port {}",
+                harvester.config.name, addr
+            );
         }
     }
 

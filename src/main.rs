@@ -24,7 +24,7 @@ async fn handle_signals(harvester: Arc<Harvester>, signals: Signals) {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    env_logger::Builder::from_env(Env::default().default_filter_or("r_neli=info,r_harvest=info"))
+    env_logger::Builder::from_env(Env::default().default_filter_or("r_neli=trace,r_harvest=trace"))
         .init();
     color_eyre::install()?;
     let settings = APP.clone();
@@ -44,6 +44,7 @@ async fn main() -> Result<()> {
         db_connect_timeout: settings.limits.db_connect_timeout,
         harvest_backoff: settings.limits.harvest_backoff,
         health_probe: settings.health_probe,
+        leader_probe: settings.leader_probe,
     }));
 
     let signals = Signals::new(&[SIGHUP, SIGTERM, SIGINT, SIGQUIT])?;
