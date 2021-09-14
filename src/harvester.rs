@@ -454,12 +454,10 @@ impl Harvester {
                                 .expect("Failed to set non-blocking tcp listener");
                             leadership_listener = Some(listener);
                         }
+                    } else if leadership_listener.is_some() {
+                        leadership_listener = None;
                     } else {
-                        if leadership_listener.is_some() {
-                            leadership_listener = None;
-                        } else {
-                            time::sleep(Duration::from_millis(100)).await;
-                        }
+                        time::sleep(Duration::from_millis(100)).await;
                     }
                 } else {
                     break;

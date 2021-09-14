@@ -8,7 +8,7 @@ use std::env;
 use std::net::SocketAddr;
 use std::time::Duration;
 
-static DEFAULT_CONFIG_FILE: &'static str = "harvester.yml";
+static DEFAULT_CONFIG_FILE: &str = "harvester.yml";
 
 lazy_static! {
     pub static ref APP: Settings = Settings::new().unwrap();
@@ -54,10 +54,10 @@ pub struct BaseKafkaConfig {
     extra_config: HashMap<String, String>,
 }
 
-impl Into<HashMap<String, String>> for BaseKafkaConfig {
-    fn into(self) -> HashMap<String, String> {
-        let mut config = self.extra_config.clone();
-        config.insert(String::from("bootstrap.servers"), self.bootstrap_servers);
+impl From<BaseKafkaConfig> for HashMap<String, String> {
+    fn from(val: BaseKafkaConfig) -> Self {
+        let mut config = val.extra_config.clone();
+        config.insert(String::from("bootstrap.servers"), val.bootstrap_servers);
         config
     }
 }
@@ -83,13 +83,14 @@ impl Settings {
     pub fn new() -> Result<Settings> {
         let mut settings = Config::new();
 
-        let config_path = env::var("HARVEST_CONFIG").unwrap_or(DEFAULT_CONFIG_FILE.to_string());
+        let config_path =
+            env::var("HARVEST_CONFIG").unwrap_or_else(|_| DEFAULT_CONFIG_FILE.to_string());
         settings
             .merge(File::with_name(&config_path))
             .wrap_err("Please make sure your configuration is present")?;
 
-        return settings
+        settings
             .try_into()
-            .wrap_err_with(|| format!("Failed to read configuration file: {}", config_path));
+            .wrap_err_with(|| format!("Failed to read configuration file: {}", config_path))
     }
 }

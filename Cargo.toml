@@ -13,11 +13,11 @@ repository = "https://github.com/atrniv/r-harvester"
 color-eyre = "0.5"
 r-neli = { version = "0.1" }
 tokio = { version = "1", features = ["full"] }
-rdkafka = { version = "0.26", features = ["cmake-build"] }
+rdkafka = { version = "0.26" }
 thiserror = "1.0"
 log = { version = "0.4.0", features = ["release_max_level_info"] }
 env_logger = "0.9.0"
-sqlx = { version = "0.5.1", features = [ "runtime-tokio-rustls", "postgres" , "chrono", "json"] }
+sqlx = { version = "0.5.7", features = ["runtime-tokio-rustls", "postgres"] }
 itertools = "0.10"
 futures = "0.3.0"
 signal-hook = "0.3.8"
