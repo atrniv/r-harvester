@@ -16,6 +16,7 @@ use itertools::Itertools;
 use log::{debug, error, info, trace};
 use r_neli::{LeaderEvent, Neli, NeliConfigParams};
 use rdkafka::{
+    message::OwnedHeaders,
     producer::{DefaultProducerContext, FutureProducer, FutureRecord},
     util::Timeout,
     ClientConfig,
@@ -31,8 +32,9 @@ use tokio::time;
 struct KafkaOutboxRecord {
     id: i64,
     kafka_topic: String,
-    kafka_key: String,
-    kafka_value: String,
+    kafka_key: Vec<u8>,
+    kafka_value: Vec<u8>,
+    kafka_headers: Vec<Vec<u8>>,
 }
 
 pub struct HarvesterConfigParams {
@@ -78,25 +80,31 @@ impl From<HarvesterConfigParams> for HarvesterConfig {
             name: params.name.unwrap_or(format!(
                 "{} {} {}",
                 hostname::get()
-                    .unwrap_or(OsString::from("unknown"))
+                    .unwrap_or_else(|_| OsString::from("unknown"))
                     .to_string_lossy(),
                 std::process::id(),
                 ulid::Ulid::new()
             )),
             database_uri: params.database_uri,
-            outbox_table: params.outbox_table.unwrap_or(String::from("kafka_outbox")),
+            outbox_table: params
+                .outbox_table
+                .unwrap_or_else(|| String::from("kafka_outbox")),
             base_kafka_config: params.base_kafka_config,
-            producer_kafka_config: params.producer_kafka_config.unwrap_or(HashMap::new()),
+            producer_kafka_config: params.producer_kafka_config.unwrap_or_default(),
             leader_topic: params.leader_topic,
             leader_group_id: params.leader_group_id,
             poll_duration: params.poll_duration,
             min_poll_duration: params.min_poll_duration,
             heartbeat_timeout: params.heartbeat_timeout,
             harvest_limit: params.harvest_limit.unwrap_or(1000),
-            harvest_backoff: params.harvest_backoff.unwrap_or(Duration::from_secs(1)),
+            harvest_backoff: params
+                .harvest_backoff
+                .unwrap_or_else(|| Duration::from_secs(1)),
             health_probe: params.health_probe,
             leader_probe: params.leader_probe,
-            db_connect_timeout: params.db_connect_timeout.unwrap_or(Duration::from_secs(5)),
+            db_connect_timeout: params
+                .db_connect_timeout
+                .unwrap_or_else(|| Duration::from_secs(5)),
         }
     }
 }
@@ -119,7 +127,7 @@ impl Harvester {
         let config = HarvesterConfig::from(config);
         Harvester {
             query_stmt: format!(
-                "SELECT id, kafka_topic, kafka_key, kafka_value FROM {} ORDER BY id ASC LIMIT {}",
+                "SELECT id, kafka_topic, kafka_key, kafka_value, kafka_headers FROM {} ORDER BY id ASC LIMIT {} FOR UPDATE",
                 config.outbox_table, config.harvest_limit
             ),
             purge_stmt: format!("DELETE FROM {} WHERE id = ANY($1)", config.outbox_table),
@@ -197,8 +205,9 @@ impl Harvester {
     ) -> Result<()> {
         // Query records from db
         let start = Instant::now();
+        let mut tx = db.begin().await?;
         let rows: Vec<KafkaOutboxRecord> = sqlx::query_as(self.query_stmt.as_str())
-            .fetch_all(&db)
+            .fetch_all(&mut tx)
             .await?;
 
         let count = rows.len();
@@ -217,9 +226,9 @@ impl Harvester {
             // Group Records and send them simultaneously
             let (success, failure, largest_batch, success_ids) = join_all(
                 rows.into_iter()
-                    .group_by(|x| format!("{}:{}", x.kafka_topic, x.kafka_key))
+                    .into_group_map_by(|x| (x.kafka_topic.clone(), x.kafka_key.clone()))
                     .into_iter()
-                    .map(|(key, batch)| self.batch_publish(key, &producer, batch.collect_vec())),
+                    .map(|(_, batch)| self.batch_publish(producer, batch)),
             )
             .await
             .into_iter()
@@ -233,8 +242,10 @@ impl Harvester {
             });
             sqlx::query(self.purge_stmt.as_str())
                 .bind(success_ids)
-                .execute(&db)
+                .execute(&mut tx)
                 .await?;
+
+            tx.commit().await?;
             let duration = Instant::now() - start;
             info!(
     "[{}] Records published: (success: {}, failure: {}, largest batch: {}, duration: {:.3}s, rate: {:.3} m/s) ",
@@ -246,7 +257,6 @@ impl Harvester {
 
     async fn batch_publish(
         &self,
-        key: String,
         producer: &FutureProducer<DefaultProducerContext>,
         messages: Vec<KafkaOutboxRecord>,
     ) -> (u16, u16, Vec<i64>) {
@@ -260,22 +270,27 @@ impl Harvester {
                 failure += 1;
                 continue;
             }
-
+            let mut headers = OwnedHeaders::new_with_capacity(message.kafka_headers.len());
+            for chunk in message.kafka_headers.chunks(2) {
+                if let Ok(key) = std::str::from_utf8(chunk[0].as_slice()) {
+                    headers = headers.add(key, chunk[1].as_slice());
+                }
+            }
             match producer
                 .send(
                     FutureRecord::to(message.kafka_topic.as_str())
-                        .key(message.kafka_key.as_bytes())
-                        .payload(message.kafka_value.as_bytes()),
+                        .key(message.kafka_key.as_slice())
+                        .payload(message.kafka_value.as_slice())
+                        .headers(headers),
                     Timeout::Never,
                 )
                 .await
             {
                 Ok(_) => {
                     trace!(
-                        "[{}] Published message {} with key {} to {} successfully",
+                        "[{}] Published message {} to {} successfully",
                         self.config.name,
                         message.id,
-                        message.kafka_key,
                         message.kafka_topic
                     );
                     success_ids.push(message.id);
@@ -291,9 +306,8 @@ impl Harvester {
             }
         }
         debug!(
-            "[{}] Published batch {} with {} messages",
+            "[{}] Published batch of {} messages",
             self.config.name,
-            key,
             messages.len()
         );
         (success, failure, success_ids)
@@ -446,7 +460,7 @@ impl Harvester {
                         } else {
                             time::sleep(Duration::from_millis(100)).await;
                         }
-                    };
+                    }
                 } else {
                     break;
                 }
