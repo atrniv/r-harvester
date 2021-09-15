@@ -353,31 +353,38 @@ impl Harvester {
                         });
                     },
                 ) {
-                    Ok(processor) => break processor,
+                    Ok(processor) => break Ok(processor),
                     Err(err) => {
+                        if !harvester.state.is_running.load(Ordering::Relaxed) {
+                            break Err(err);
+                        }
                         error!("Failed to start background NELI server: {}", err);
+                        tokio::time::sleep(Duration::from_secs(5)).await;
                     }
                 }
             }
         };
-        info!("[{}] Started background NELI server", harvester.config.name);
-        while harvester.state.is_running.load(Ordering::Relaxed) {
-            if let Some(leader_status) = processor.pulse(Duration::from_millis(500)).await.unwrap()
-            {
-                harvester
-                    .state
-                    .is_leader
-                    .store(leader_status[0], std::sync::atomic::Ordering::SeqCst);
-            } else {
-                harvester
-                    .state
-                    .is_leader
-                    .store(false, std::sync::atomic::Ordering::SeqCst);
+        if let Ok(processor) = processor {
+            info!("[{}] Started background NELI server", harvester.config.name);
+            while harvester.state.is_running.load(Ordering::Relaxed) {
+                if let Some(leader_status) =
+                    processor.pulse(Duration::from_millis(500)).await.unwrap()
+                {
+                    harvester
+                        .state
+                        .is_leader
+                        .store(leader_status[0], std::sync::atomic::Ordering::SeqCst);
+                } else {
+                    harvester
+                        .state
+                        .is_leader
+                        .store(false, std::sync::atomic::Ordering::SeqCst);
+                }
             }
+            processor.close();
+            drop(processor);
+            info!("[{}] Stopped background NELI server", harvester.config.name);
         }
-        processor.close();
-        drop(processor);
-        info!("[{}] Stopped background NELI server", harvester.config.name);
     }
 
     async fn health_probe(harvester: Harvester) {
