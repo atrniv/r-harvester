@@ -1,5 +1,5 @@
 use color_eyre::{eyre::WrapErr, Result};
-use config::{Config, File};
+use config::{Config, Environment, File};
 use lazy_static::lazy_static;
 use serde::Deserialize;
 use sqlx::postgres::PgConnectOptions;
@@ -88,6 +88,10 @@ impl Settings {
         settings
             .merge(File::with_name(&config_path))
             .wrap_err("Please make sure your configuration is present")?;
+
+        settings
+            .merge(Environment::with_prefix("HARVEST_CONFIG").separator("__"))
+            .context("Please set valid environment variables")?;
 
         settings
             .try_into()

@@ -2,7 +2,7 @@
 name = "r-harvest"
 description = "Transactional Outbox implementation for Kafka and Postgres"
 keywords = ["kafka", "outbox", "transaction"]
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Johny Jose <atrniv.j@gmail.com>"]
 edition = "2018"
 license = "MIT"
