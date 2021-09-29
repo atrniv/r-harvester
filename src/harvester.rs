@@ -78,12 +78,11 @@ impl From<HarvesterConfigParams> for HarvesterConfig {
     fn from(params: HarvesterConfigParams) -> Self {
         HarvesterConfig {
             name: params.name.unwrap_or(format!(
-                "{} {} {}",
+                "r-harvester-{}-{}",
                 hostname::get()
                     .unwrap_or_else(|_| OsString::from("unknown"))
                     .to_string_lossy(),
                 std::process::id(),
-                ulid::Ulid::new()
             )),
             database_uri: params.database_uri,
             outbox_table: params
@@ -140,7 +139,11 @@ impl Harvester {
     }
 
     pub async fn start(&self) -> Result<()> {
-        let mut options = self.config.database_uri.clone();
+        let mut options = self
+            .config
+            .database_uri
+            .clone()
+            .application_name(self.config.name.as_str());
         options.disable_statement_logging();
 
         let db = PgPoolOptions::new()
@@ -177,7 +180,11 @@ impl Harvester {
                 match self.harvest(db.clone(), &producer).await {
                     Ok(_) => {}
                     Err(err) => {
-                        error!("Failed to harvest records: {}", err);
+                        error!(
+                            "Failed to harvest records, waiting for {:.2} secs: {}",
+                            self.config.harvest_backoff.as_secs_f32(),
+                            err
+                        );
                         time::sleep(self.config.harvest_backoff).await;
                     }
                 }
@@ -212,6 +219,7 @@ impl Harvester {
 
         let count = rows.len();
         if count == 0 {
+            tx.commit().await?;
             debug!(
                 "[{}] No records found in outbox, waiting for {:.2} secs",
                 self.config.name,
@@ -247,10 +255,7 @@ impl Harvester {
 
             tx.commit().await?;
             let duration = Instant::now() - start;
-            info!(
-    "[{}] Records published: (success: {}, failure: {}, largest batch: {}, duration: {:.3}s, rate: {:.3} m/s) ",
-    self.config.name, success, failure, largest_batch, duration.as_secs_f32(), count as f32/ duration.as_secs_f32()
-);
+            info!("[{}] Records published: (success: {}, failure: {}, largest batch: {}, duration: {:.3}s, rate: {:.3} m/s) ", self.config.name, success, failure, largest_batch, duration.as_secs_f32(), count as f32/ duration.as_secs_f32());
         }
         Ok(())
     }
