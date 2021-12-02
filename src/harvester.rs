@@ -181,7 +181,8 @@ impl Harvester {
                     Ok(_) => {}
                     Err(err) => {
                         error!(
-                            "Failed to harvest records, waiting for {:.2} secs: {}",
+                            "[{}] Failed to harvest records, waiting for {:.2} secs: {}",
+                            self.config.name,
                             self.config.harvest_backoff.as_secs_f32(),
                             err
                         );

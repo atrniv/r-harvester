@@ -943,7 +943,7 @@ dependencies = [
 
 [[package]]
 name = "r-harvest"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "color-eyre",
  "config",
@@ -967,9 +967,9 @@ dependencies = [
 
 [[package]]
 name = "r-neli"
-version = "0.1.3"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ed92c27046ce7e78602cfd2711ad9e14ae29b820235b61c12621a02381e11c5"
+checksum = "126a26a27f3f80a3f32717e7a641c6f3331b6e8e0ee643b1f89fdf7851e6b09c"
 dependencies = [
  "anyhow",
  "env_logger",
@@ -1021,9 +1021,9 @@ dependencies = [
 
 [[package]]
 name = "rdkafka"
-version = "0.27.0"
+version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a22ce72c78b471baba6c75bda6e03511ef2ee1bae3729902d2bb38951db1048"
+checksum = "1de127f294f2dba488ed46760b129d5ecbeabbd337ccbf3739cb29d50db2161c"
 dependencies = [
  "futures",
  "libc",
@@ -1038,9 +1038,9 @@ dependencies = [
 
 [[package]]
 name = "rdkafka-sys"
-version = "4.1.0+1.7.0"
+version = "4.2.0+1.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e212ccf56a2d4e0b9f874a1cad295495769e0cdbabe60e02b4f654d369a2d6a1"
+checksum = "9e542c6863b04ce0fa0c5719bc6b7b348cf8dd21af1bb03c9db5f9805b2a6473"
 dependencies = [
  "libc",
  "libz-sys",
